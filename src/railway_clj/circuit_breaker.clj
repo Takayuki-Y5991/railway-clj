@@ -1,7 +1,7 @@
 (ns railway-clj.circuit-breaker
   (:require
    [railway-clj.core :refer [failure failure?]]
-   [clojure.core.async :refer [<! >!! chan go-loop timeout]]
+   [clojure.core.async :as async :refer [<! chan go-loop timeout]]
    [clojure.tools.logging :as log]))
 
 (defn- process-success
@@ -34,7 +34,7 @@
     (when (and (= (:status new-state) :open)
                (not= (:status old-state) :open))
       (log/warn "Circuit breaker opened after" (:failures new-state) "consecutive failures")
-      (>!! reset-channel :schedule-reset))))
+      (async/>!! reset-channel :schedule-reset))))
 
 (defn create-circuit-breaker
   "サーキットブレーカーを作成します。
@@ -100,7 +100,7 @@
                 (do
                   (log/warn "Test request failed in half-open state, reopening circuit")
                   (swap! state assoc :status :open :failures (inc (:failures @state)))
-                  (>!! reset-channel :schedule-reset)
+                  (async/>!! reset-channel :schedule-reset)
                   result)
                 (do
                   (process-success state half-open-calls)

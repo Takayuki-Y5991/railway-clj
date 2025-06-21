@@ -1,7 +1,6 @@
 (ns railway-clj.retry
   (:require
-   [railway-clj.core :refer [success?]]
-   [clojure.core.async :refer [<!! timeout]]))
+   [railway-clj.core :refer [success?]]))
 
 (defn retryable-error? [error]
   (let [status (get-in error [:details :status])]
@@ -41,5 +40,5 @@
           :else (do
                   (let [jitter-amount (* current-backoff jitter (- (rand) 0.5))
                         sleep-ms (+ current-backoff jitter-amount)]
-                    (<!! (timeout (long sleep-ms))))
+                    (Thread/sleep (long sleep-ms)))
                   (recur (inc attempts) (* current-backoff backoff-factor))))))))
