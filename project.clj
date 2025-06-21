@@ -1,5 +1,5 @@
-(defproject railway-clj "0.1.0-SNAPSHOT"
-  :description "Railway Oriented Programming library for Clojure"
+(defproject railway-clj "0.1.0"
+  :description "Railway Oriented Programming library for Clojure with async support, circuit breaker, and retry mechanisms"
   :url "https://github.com/Takayuki-Y5991/railway-clj"
   :license {:name "MIT"
             :url "https://opensource.org/licenses/MIT"}
