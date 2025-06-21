@@ -1,6 +1,6 @@
 (ns railway-clj.core-test
   (:require
-   [railway-clj.core :refer [!> <|> >-< attempt either failure failure? guard success success? validate |+ |-| |>]]
+   [railway-clj.core :refer [!> <|> >-< ->error ->value attempt delay-railway either failure failure? guard lazy? success success? validate |+ |-| |>]]
    [clojure.spec.alpha :as s]
    [clojure.test :refer  [deftest is testing]]))
 
@@ -138,4 +138,36 @@
 
       (let [result (safe-fn 0)]
         (is (failure? result))
-        (is (= "Divide by zero" (get-in result [:error :message])))))))
+        (is (= "Divide by zero" (get-in result [:error :message]))))))
+
+(deftest delay-railway-test
+  (testing "delay-railway creates lazy railway result based on evaluation"
+    (let [eval-count (atom 0)
+          success-fn (fn []
+                       (swap! eval-count inc)
+                       (success "delayed success"))
+          failure-fn (fn []
+                       (swap! eval-count inc)
+                       (failure "delayed failure"))
+          lazy-success-result (delay-railway (success-fn))
+          lazy-failure-result (delay-railway (failure-fn))]
+
+      ;; Initially, functions should not be evaluated
+      (is (= 0 @eval-count))
+
+      ;; Force evaluation by calling the returned function
+      (let [success-lazy (lazy-success-result)
+            failure-lazy (lazy-failure-result)]
+        
+        ;; Now functions should be evaluated
+        (is (= 2 @eval-count))
+        
+        ;; Check that lazy results are created correctly
+        (is (lazy? success-lazy))
+        (is (lazy? failure-lazy))
+        (is (success? success-lazy))
+        (is (failure? failure-lazy))
+        
+        ;; Force evaluation to get actual values
+        (is (= "delayed success" (->value success-lazy)))
+        (is (= "delayed failure" (->error failure-lazy))))))))
