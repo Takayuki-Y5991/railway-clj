@@ -3,11 +3,12 @@
    [railway-clj.core :as r :refer [->value failure failure?
                                    force-lazy success
                                    success?]]
-   [clojure.core.async :as async :refer [<! go]]))
+   [clojure.core.async :as async :refer [<! go]]
+   [clojure.core.async.impl.protocols :as impl]))
 
 ;; Checks if a value is a channel (for async operations)
 (defn channel? [x]
-  (instance? clojure.core.async.impl.channels.ManyToManyChannel x))
+  (satisfies? impl/ReadPort x))
 
 ;; -----------------------------------------------------------------------------
 ;; Async Railway Operations
