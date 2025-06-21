@@ -7,4 +7,6 @@
                  [org.clojure/core.async "1.7.701"]
                  [org.clojure/tools.logging "1.3.0"]
                  [org.clojure/spec.alpha "0.3.218"]]
-  :profiles {:dev {:dependencies [[org.clojure/test.check "1.1.1"]]}})
+  :profiles {:dev {:dependencies [[org.clojure/test.check "1.1.1"]]
+                              :plugins [[lein-cloverage "1.2.4"]]}}
+  :cloverage {:fail-threshold 70})

@@ -1,8 +1,8 @@
 (ns railway-clj.circuit-breaker-test
   (:require [clojure.test :refer [deftest is testing]]
             [railway-clj.circuit-breaker :refer [create-circuit-breaker]]
-            [railway-clj.core :refer [success failure failure?]]
-            [clojure.core.async :refer [<!! timeout]]))
+            [railway-clj.core :refer [success failure failure? success?]]
+            [clojure.core.async :as async :refer [<!! timeout]]))
 
 (deftest create-circuit-breaker-test
   (testing "Should initially be in closed state and allow calls to pass through"
@@ -156,4 +156,75 @@
 
         ;; すべての呼び出しが「サーキットが開いている」エラーを返すはず
         (is (every? #(= "Circuit breaker is open" (get-in % [:error :error])) results)
-            "All calls should be blocked by open circuit")))))
+            "All calls should be blocked by open circuit"))))
+
+(deftest circuit-breaker-state-management-test
+  (testing "Internal state management functions work correctly"
+    (let [failure-threshold 3
+          half-open-calls 2]
+
+      ;; Test process-success behavior
+      (testing "process-success updates state correctly"
+        ;; We can't directly test private functions, but we can test through the public interface
+        (let [test-fn (constantly (success "ok"))
+              circuit-breaker (create-circuit-breaker {:failure-threshold failure-threshold
+                                                       :half-open-calls half-open-calls})
+              protected-fn (circuit-breaker test-fn)]
+          
+          ;; Call the function to trigger success processing
+          (protected-fn "test")
+          
+          ;; The internal state should be updated (we can't access it directly)
+          ;; But we can verify behavior through repeated calls
+          (is (= (success "ok") (protected-fn "test")))))
+
+      ;; Test failure processing through integration
+      (testing "failure processing opens circuit at threshold"
+        (let [failure-fn (constantly (failure {:error "test failure"}))
+              circuit-breaker (create-circuit-breaker {:failure-threshold 2})
+              protected-fn (circuit-breaker failure-fn)]
+          
+          ;; First failure
+          (let [result1 (protected-fn "test")]
+            (is (failure? result1))
+            (is (= "test failure" (get-in result1 [:error :error]))))
+          
+          ;; Second failure should open the circuit
+          (let [result2 (protected-fn "test")]
+            (is (failure? result2))
+            (is (= "test failure" (get-in result2 [:error :error]))))
+          
+          ;; Third call should be blocked
+          (let [result3 (protected-fn "test")]
+            (is (failure? result3))
+            (is (= "Circuit breaker is open" (get-in result3 [:error :error])))))))))
+
+(deftest circuit-breaker-logging-test
+  (testing "Circuit breaker logs state changes appropriately"
+    ;; Since we can't easily test logging output, we test that the circuit breaker
+    ;; continues to function correctly even with logging enabled
+    (let [call-count (atom 0)
+          test-fn (fn [_]
+                    (swap! call-count inc)
+                    (if (<= @call-count 2)
+                      (failure {:error "test failure"})
+                      (success "success")))
+          circuit-breaker (create-circuit-breaker {:failure-threshold 2
+                                                   :reset-timeout-ms 50})
+          protected-fn (circuit-breaker test-fn)]
+
+      ;; Trigger state changes and verify behavior
+      (protected-fn "test") ; First failure
+      (protected-fn "test") ; Second failure, should open circuit
+      
+      ;; Circuit should be open now
+      (let [result (protected-fn "test")]
+        (is (= "Circuit breaker is open" (get-in result [:error :error]))))
+      
+      ;; Wait for reset
+      (<!! (timeout 100))
+      
+      ;; Should allow test call in half-open state
+      (let [result (protected-fn "test")]
+        (is (success? result))
+        (is (= "success" (:value result))))))))

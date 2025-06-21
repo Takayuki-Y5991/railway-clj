@@ -419,3 +419,22 @@
       ;; And the result should be a success with 10 (5 doubled)
       (is (success? final-result))
       (is (= 10 (:value final-result))))))
+
+(deftest channel?-test
+  (testing "channel? identifies channels correctly"
+    (let [ch (async/chan)
+          non-channel "not a channel"]
+      (is (a/channel? ch) "Should identify channels as channels")
+      (is (not (a/channel? non-channel)) "Should not identify non-channels as channels")
+      (async/close! ch))))
+
+(deftest unwrap-channel-test
+  (testing "unwrap-channel extracts values from railway results in channels"
+    (let [success-ch (go (success "test-value"))
+          failure-ch (go (failure "test-error"))
+          
+          success-result (<!! (a/unwrap-channel success-ch))
+          failure-result (<!! (a/unwrap-channel failure-ch))]
+      
+      (is (= "test-value" success-result) "Should unwrap success values")
+      (is (= "test-error" failure-result) "Should unwrap failure errors"))))
