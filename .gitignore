@@ -1,4 +1,4 @@
 target/
-.lsp
-.clj-kondo
+.lsp/
+.clj-kondo/
 .lein-failures
