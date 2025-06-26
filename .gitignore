@@ -2,3 +2,5 @@ target/
 .lsp/
 .clj-kondo/
 .lein-failures
+.claude
+.lein/
