@@ -1,6 +1,6 @@
 target/
 .lsp/
-.clj-kondo/
+.clj-kondo/.cache/
 .lein-failures
 .claude
 .lein/
