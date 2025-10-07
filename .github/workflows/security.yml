@@ -9,6 +9,9 @@ on:
 jobs:
   vulnerability-scan:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
 
     steps:
       - uses: actions/checkout@v4
@@ -34,12 +37,18 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-clojure-
 
-      - name: Run vulnerability scan
+      - name: Install Leiningen
+        run: |
+          wget https://raw.githubusercontent.com/technomancy/leiningen/stable/bin/lein
+          chmod +x lein
+          sudo mv lein /usr/local/bin/
+          lein version
+
+      - name: Run vulnerability scan with nvd-clojure
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
-          clojure -Sdeps '{:deps {io.github.clj-holmes/clj-watson {:git/tag "v6.0.1" :git/sha "b520351"}}}' \
-                  -M -m clj-watson.cli scan -p project.clj
+          lein update-in :plugins conj "[lein-nvd \"2.1.0\"]" -- nvd check
 
       - name: Upload scan results
         uses: actions/upload-artifact@v4
