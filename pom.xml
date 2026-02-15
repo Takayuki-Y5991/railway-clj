@@ -18,7 +18,7 @@
     <url>https://github.com/Takayuki-Y5991/railway-clj</url>
     <connection>scm:git:git://github.com/Takayuki-Y5991/railway-clj.git</connection>
     <developerConnection>scm:git:ssh://git@github.com/Takayuki-Y5991/railway-clj.git</developerConnection>
-    <tag>eee5c8f33c39a65a636312c90117f5cc0f80df5b</tag>
+    <tag>7b30683a52eb923f963077873f7ac2bd364313e2</tag>
   </scm>
   <build>
     <sourceDirectory>src</sourceDirectory>

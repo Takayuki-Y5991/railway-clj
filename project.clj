@@ -10,5 +10,6 @@
   :min-lein-version "2.0.0"
   :deploy-repositories [["clojars" {:url "https://clojars.org/repo"
                                     :sign-releases false}]]
+  :aliases {"publish" ["deploy" "clojars"]}
   :scm {:name "git"
         :url "https://github.com/Takayuki-Y5991/railway-clj"})
