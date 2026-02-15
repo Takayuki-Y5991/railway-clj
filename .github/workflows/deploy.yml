@@ -96,6 +96,9 @@ jobs:
 
       - name: Deploy to Clojars
         env:
-          CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
-          CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
-        run: lein deploy clojars
+          LEIN_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
+          LEIN_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
+        run: |
+          mkdir -p ~/.lein
+          echo "{#\"clojars\" {:username \"${LEIN_USERNAME}\" :password \"${LEIN_PASSWORD}\"}}" > ~/.lein/credentials.clj
+          lein deploy clojars
