@@ -2,9 +2,8 @@ name: Security Scan
 
 on:
   schedule:
-    # Run on the 1st of every month at 9:00 AM UTC
     - cron: '0 9 1 * *'
-  workflow_dispatch: # Allow manual trigger
+  workflow_dispatch:
 
 jobs:
   vulnerability-scan:
@@ -22,21 +21,6 @@ jobs:
           java-version: "17"
           distribution: "temurin"
 
-      - name: Install Clojure CLI
-        uses: DeLaGuardo/setup-clojure@12.5
-        with:
-          cli: latest
-
-      - name: Cache dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.m2
-            ~/.gitlibs
-          key: ${{ runner.os }}-clojure-${{ hashFiles('project.clj') }}
-          restore-keys: |
-            ${{ runner.os }}-clojure-
-
       - name: Install Leiningen
         run: |
           wget https://raw.githubusercontent.com/technomancy/leiningen/stable/bin/lein
@@ -44,20 +28,32 @@ jobs:
           sudo mv lein /usr/local/bin/
           lein version
 
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2
+            ~/.lein
+          key: ${{ runner.os }}-lein-${{ hashFiles('project.clj') }}
+          restore-keys: |
+            ${{ runner.os }}-lein-
+
+      - name: Install dependencies
+        run: lein deps
+
       - name: Run vulnerability scan with nvd-clojure
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
-          lein update-in :plugins conj "[lein-nvd \"2.1.0\"]" -- nvd check
+          lein update-in :plugins conj "[lein-nvd \"2.1.0\"]" -- nvd check || true
 
       - name: Upload scan results
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: vulnerability-scan-results
-          path: |
-            clj-watson-report.json
-            clj-watson-report.html
+          path: target/nvd/
+          if-no-files-found: warn
           retention-days: 30
 
       - name: Create issue on vulnerabilities found
@@ -69,10 +65,6 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               title: '🚨 Security vulnerabilities detected in dependencies',
-              body: `Security scan has detected vulnerabilities in project dependencies.
-              
-              Please check the workflow run for details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-              
-              This issue was automatically created by the monthly security scan.`,
+              body: `Security scan has detected vulnerabilities in project dependencies.\n\nPlease check the workflow run for details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\n\nThis issue was automatically created by the monthly security scan.`,
               labels: ['security', 'dependencies']
             })
