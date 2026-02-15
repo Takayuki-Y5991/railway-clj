@@ -1,269 +1,165 @@
 # railway-clj
 
-[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://github.com/Takayuki-Y5991/railway-clj)
-[![Coverage](https://img.shields.io/badge/coverage-86.28%25-green.svg)](https://github.com/Takayuki-Y5991/railway-clj)
+[![Version](https://img.shields.io/badge/version-0.2.0-blue.svg)](https://github.com/Takayuki-Y5991/railway-clj)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
-Railway Oriented Programming (ROP) library for Clojure - A library for concise and elegant error handling.
+Minimal Railway Oriented Programming for Clojure.
 
-## Overview
+## Design Principles
 
-railway-clj is a Clojure implementation of the Railway Oriented Programming (ROP) pattern from functional programming. This pattern explicitly distinguishes between "happy path" and "error path" flows, making it particularly useful for building pipelines that perform sequential value transformations.
-
-Key Features:
-
-- Basic ROP operations (Success/Failure value handling)
-- Lazy evaluation
-- Asynchronous processing (core.async integration)
-- Circuit breaker pattern
-- Retry mechanisms
+- Plain data only (no defrecord)
+- Functions over macros (`->result` is the only macro)
+- Zero dependencies (`clojure.core` only)
 
 ## Installation
 
-Add the following to your Leiningen project's `:dependencies`:
-
 ```clojure
-[railway-clj "0.1.0"]
+[org.clojars.konkon/railway-clj "0.2.0"]
 ```
 
-## Usage
+## Data Representation
 
-### Basic Usage
-
-The core of railway-clj is the Success/Failure pattern that allows you to chain operations while automatically handling errors:
+Results are expressed as tagged tuples:
 
 ```clojure
-(ns example.core
-  (:require [railway-clj.core :as r]))
-
-;; Threading success values through a pipeline
-(r/|> (r/success 5)
-      inc
-      #(* % 2))
-;; => #railway_clj.core.Success{:value 12}
-
-;; Error handling with pattern matching
-(r/>-< (r/|> (r/success 5)
-             inc
-             #(* % 2))
-       #(str "Result: " %)
-       #(str "Error: " (:error %)))
-;; => "Result: 12"
-
-;; When an error occurs, it short-circuits the pipeline
-(r/|> (r/failure {:error "Invalid input"})
-      inc
-      #(* % 2))
-;; => #railway_clj.core.Failure{:error {:error "Invalid input"}}
+[:ok value]    ;; success
+[:err reason]  ;; failure
 ```
 
-### Working with Collections
+Plain data, so `assoc`, `merge`, `print`, `read` all work as expected.
+
+## API
+
+### Data Creation & Predicates
 
 ```clojure
-;; Map over collections with error handling
-(r/map-success #(/ 10 %) [1 2 5 10])
-;; => (#railway_clj.core.Success{:value 10} 
-;;     #railway_clj.core.Success{:value 5} 
-;;     #railway_clj.core.Success{:value 2} 
-;;     #railway_clj.core.Success{:value 1})
+(require '[railway-clj.core :as r])
 
-;; Validate and transform data
-(defn validate-positive [x]
-  (if (pos? x)
-    (r/success x)
-    (r/failure {:error "Must be positive" :value x})))
+(r/ok 42)           ;; => [:ok 42]
+(r/err "not found") ;; => [:err "not found"]
 
-(r/|> (r/success -5)
-      validate-positive
-      #(* % 2))
-;; => #railway_clj.core.Failure{:error {:error "Must be positive", :value -5}}
+(r/ok? (r/ok 42))    ;; => true
+(r/err? (r/err "x")) ;; => true
+
+(r/unwrap (r/ok 42))        ;; => 42
+(r/unwrap (r/err "reason"))  ;; => "reason"
 ```
 
-### Asynchronous Processing
-
-railway-clj integrates seamlessly with core.async for asynchronous workflows:
+### then — Transform Success Values
 
 ```clojure
-(ns example.async
-  (:require [railway-clj.async :as ra]
-            [railway-clj.core :as r]
-            [clojure.core.async :refer [<! go chan >!]]))
+(r/then (r/ok 5) inc)
+;; => [:ok 6]
 
-(defn async-increment [x]
-  (go (r/success (inc x))))
+(r/then (r/err "fail") inc)
+;; => [:err "fail"]  (passes through unchanged)
 
-(defn async-multiply [x]
-  (go (r/success (* x 2))))
-
-;; Async pipeline
-(go
-  (let [result (<! (ra/|> (go (r/success 5))
-                          async-increment
-                          async-multiply))]
-    (println result)))
-;; => #railway_clj.core.Success{:value 12}
-
-;; Error handling in async context
-(defn async-divide [x y]
-  (go 
-    (if (zero? y)
-      (r/failure {:error "Division by zero"})
-      (r/success (/ x y)))))
-
-(go
-  (let [result (<! (ra/|> (go (r/success 10))
-                          #(async-divide % 0)))]
-    (println result)))
-;; => #railway_clj.core.Failure{:error {:error "Division by zero"}}
+;; When f returns a result, it is used as-is
+(r/then (r/ok 10) #(if (> % 5) (r/err "too big") (r/ok %)))
+;; => [:err "too big"]
 ```
 
-### Circuit Breaker Pattern
-
-Protect your application from cascading failures with the circuit breaker pattern:
+### recover — Transform Failure Values
 
 ```clojure
-(ns example.circuit-breaker
-  (:require [railway-clj.circuit-breaker :as cb]
-            [railway-clj.core :as r]))
+(r/recover (r/err "fail") (fn [_] (r/ok "default")))
+;; => [:ok "default"]
 
-;; Create a circuit breaker
-(def breaker (cb/create-circuit-breaker
-               {:failure-threshold 3      ; Open after 3 failures
-                :reset-timeout-ms 5000    ; Try again after 5 seconds
-                :half-open-calls 1}))     ; Test with 1 call when half-open
-
-;; Wrap external service calls
-(defn external-api-call [url]
-  (try
-    ;; Simulate HTTP call
-    (let [response {:status 200 :body "OK"}]
-      (if (>= (:status response) 400)
-        (r/failure {:error "HTTP error" :status (:status response)})
-        (r/success response)))
-    (catch Exception e
-      (r/failure {:error "Connection error" :message (.getMessage e)}))))
-
-(def protected-call (breaker external-api-call))
-
-;; Use the protected call
-(protected-call "https://api.example.com/data")
-;; => #railway_clj.core.Success{:value {:status 200, :body "OK"}}
-
-;; When circuit is open, calls fail fast
-;; #railway_clj.core.Failure{:error {:error "Circuit breaker is open"}}
+(r/recover (r/ok 42) (fn [_] (r/ok "default")))
+;; => [:ok 42]  (passes through unchanged)
 ```
 
-### Retry Mechanisms
-
-Add resilience with configurable retry logic:
+### branch — Branch on Success/Failure
 
 ```clojure
-(ns example.retry
-  (:require [railway-clj.retry :as retry]
-            [railway-clj.core :as r]))
-
-;; Create a retrying function
-(def resilient-api-call
-  (retry/retry
-    (fn [url]
-      (try
-        ;; Simulate unreliable network call
-        (if (< (rand) 0.7)  ; 70% failure rate
-          (r/failure {:error "Network timeout"})
-          (r/success {:data "Important data"}))
-        (catch Exception e
-          (r/failure {:error "Unexpected error" :message (.getMessage e)}))))
-    {:max-attempts 5           ; Try up to 5 times
-     :backoff-ms 1000         ; Start with 1 second delay
-     :backoff-factor 2        ; Double the delay each time
-     :retryable? retry/retryable-error?}))
-
-;; Use the resilient function
-(resilient-api-call "https://unreliable-api.com/data")
-;; Will retry on failures with exponential backoff
-;; => #railway_clj.core.Success{:value {:data "Important data"}}
+(r/branch (r/ok 42)
+          #(str "value: " %)
+          #(str "error: " %))
+;; => "value: 42"
 ```
 
-### Combining Patterns
-
-You can combine all these patterns for robust error handling:
+### or-else — Provide Alternative on Failure
 
 ```clojure
-(ns example.combined
-  (:require [railway-clj.core :as r]
-            [railway-clj.async :as ra]
-            [railway-clj.circuit-breaker :as cb]
-            [railway-clj.retry :as retry]
-            [clojure.core.async :refer [go <!]]))
+(r/or-else (r/err "fail") (r/ok 0))
+;; => [:ok 0]
 
-;; Create a fully protected async service call
-(def protected-service
-  (-> (fn [request]
-        (go
-          ;; Your actual service logic here
-          (if (valid? request)
-            (r/success (process-request request))
-            (r/failure {:error "Invalid request"}))))
-      (retry/retry {:max-attempts 3 :backoff-ms 500})
-      (cb/create-circuit-breaker {:failure-threshold 5 :reset-timeout-ms 10000})))
-
-;; Use in an async pipeline
-(go
-  (let [result (<! (ra/|> (go (r/success {:user-id 123}))
-                          protected-service
-                          #(go (r/success (format-response %)))))]
-    (r/>-< result
-           #(println "Success:" %)
-           #(println "Failed:" (:error %)))))
+(r/or-else (r/ok 42) (r/ok 0))
+;; => [:ok 42]
 ```
 
-## API Reference
+### pipeline — Function Composition
 
-### Core Functions
+```clojure
+(def process (r/pipeline inc #(* % 2)))
 
-- `success` - Create a success value
-- `failure` - Create a failure value  
-- `|>` - Pipeline operator for chaining operations
-- `>-<` - Pattern match on success/failure
-- `map-success` - Map function over collection, handling errors
+(process 5)  ;; => [:ok 12]
+(process 2)  ;; => [:ok 6]
 
-### Async Functions
+;; Short-circuits on failure
+(def safe-process
+  (r/pipeline
+    inc
+    #(if (> % 5) (r/err "too big") %)
+    #(* % 2)))
 
-- `ra/|>` - Async pipeline operator
-- `ra/>-<` - Async pattern matching
+(safe-process 2)  ;; => [:ok 6]
+(safe-process 5)  ;; => [:err "too big"]
+```
 
-### Circuit Breaker
+### -> + then — Inline Pipeline
 
-- `create-circuit-breaker` - Create a circuit breaker with configuration
-- States: `:closed`, `:open`, `:half-open`
+```clojure
+(-> (r/ok 5)
+    (r/then inc)
+    (r/then #(* % 2)))
+;; => [:ok 12]
+```
 
-### Retry
+### ->result — Exception Conversion
 
-- `retry` - Wrap function with retry logic
-- `retryable-error?` - Default predicate for retryable errors
+```clojure
+(r/->result (/ 10 5))
+;; => [:ok 2]
+
+(r/->result (/ 10 0))
+;; => [:err {:type :exception, :message "Divide by zero"}]
+```
+
+## Aliases (Symbolic)
+
+All operation functions have symbolic aliases. They are identical functions bound via `def`.
+
+| Name | Symbol | Meaning |
+|---|---|---|
+| `then` | `>>` | Flow success value forward |
+| `recover` | `<<` | Recover from failure |
+| `branch` | `><` | Branch on success/failure |
+| `or-else` | `\|?` | Return alternative on failure |
+| `pipeline` | `>>>` | Compose functions sequentially |
+
+```clojure
+(require '[railway-clj.core :as r])
+
+;; Readable names
+(-> (r/ok 5)
+    (r/then inc)
+    (r/then #(* % 2)))
+;; => [:ok 12]
+
+;; Symbolic (same result)
+(-> (r/ok 5)
+    (r/>> inc)
+    (r/>> #(* % 2)))
+;; => [:ok 12]
+```
 
 ## Testing
-
-Run the test suite:
 
 ```bash
 lein test
 ```
 
-Run with coverage (requires 70% minimum):
-
-```bash
-lein cloverage
-```
-
-Current test coverage: **86.28%** (Forms) / **96.79%** (Lines)
-
-Coverage breakdown by namespace:
-- `railway-clj.core`: 99.27% forms, 96.70% lines
-- `railway-clj.retry`: 100.00% forms, 100.00% lines  
-- `railway-clj.async`: 80.60% forms, 91.67% lines
-- `railway-clj.circuit-breaker`: 79.68% forms, 100.00% lines
-
 ## License
 
-MIT License - see LICENSE file for details.
+MIT License
